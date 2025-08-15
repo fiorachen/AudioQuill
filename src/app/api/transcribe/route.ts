@@ -4,6 +4,7 @@ import { dbHelpers } from '@/lib/supabase'
 import { CacheManager } from '@/lib/redis'
 import R2Storage from '@/lib/r2'
 import { generateUniqueId } from '@/lib/utils'
+import OpenAI from 'openai'
 
 export async function POST(req: NextRequest) {
   try {
@@ -57,24 +58,35 @@ export async function POST(req: NextRequest) {
       userId
     )
 
-    // Forward to existing Whisper API
-    const whisperApiUrl = process.env.WHISPER_API_URL || 'http://localhost:8000'
-    
-    const whisperFormData = new FormData()
-    whisperFormData.append('file', audioFile)
-
-    const whisperResponse = await fetch(`${whisperApiUrl}/transcribe/`, {
-      method: 'POST',
-      body: whisperFormData,
+    // Use OpenAI Whisper API
+    const openai = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY,
     })
 
-    if (!whisperResponse.ok) {
+    let transcriptionResult
+    try {
+      const whisperResponse = await openai.audio.transcriptions.create({
+        file: audioFile,
+        model: 'whisper-1',
+        language: 'zh', // Optional: specify language, or remove for auto-detection
+        response_format: 'json',
+      })
+
+      if (!whisperResponse.text) {
+        // Clean up uploaded file if transcription fails
+        await R2Storage.deleteAudio(audioKey)
+        throw new Error('OpenAI Whisper API returned no transcription text')
+      }
+
+      transcriptionResult = {
+        text: whisperResponse.text,
+        language: 'zh' // OpenAI API doesn't return detected language in basic response
+      }
+    } catch (openaiError) {
       // Clean up uploaded file if transcription fails
       await R2Storage.deleteAudio(audioKey)
-      throw new Error(`Whisper API error: ${whisperResponse.statusText}`)
+      throw new Error(`OpenAI Whisper API error: ${openaiError instanceof Error ? openaiError.message : 'Unknown error'}`)
     }
-
-    const transcriptionResult = await whisperResponse.json()
 
     // Save transcription to database
     const transcription = await dbHelpers.createTranscription(userId, {
