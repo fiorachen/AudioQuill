@@ -6,7 +6,8 @@
       "Bash(npm run build:*)",
       "Bash(chmod:*)",
       "Bash(./status.sh)",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "Bash(vercel env add:*)"
     ],
     "deny": []
   }
